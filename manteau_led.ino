@@ -6,25 +6,28 @@
 #define NUM_LEDS 6
 #define DATA_PIN 3
 #define DEFAULT_LUM 200
+#define DEFAULT_SPEED 100
 #define DEFAULT_MODE BRUT
 
 #define WiFi_SSID      "Modifiez_moi"       // WiFi SSID
 
 CRGB leds[NUM_LEDS];
-CRGB brut[NUM_LEDS];
+CHSV leds_buffer[NUM_LEDS];
+CHSV brut[NUM_LEDS];
 ESP8266WebServer server(80);
 
-enum {BRUT, ANIM1, ANIM2,  NONE} anim_mode = DEFAULT_MODE;
+enum {BRUT, ANIM1, ANIM2, ANIM3, ANIM4,  NONE} anim_mode = DEFAULT_MODE;
 unsigned char lum = DEFAULT_LUM;
+int spd = DEFAULT_SPEED;
 
 
-const CRGB anim1[NUM_LEDS] = {
-  CRGB(95, 33, 175),
-  CRGB(42, 95, 124),
-  CRGB(78, 39, 130),
-  CRGB(80, 143, 178),
-  CRGB(122, 80, 178),
-  CRGB(24, 128, 186)
+const CHSV anim1[NUM_LEDS] = {
+  rgb2hsv_approximate(CRGB(95, 33, 175)),
+  rgb2hsv_approximate(CRGB(42, 95, 124)),
+  rgb2hsv_approximate(CRGB(78, 39, 130)),
+  rgb2hsv_approximate(CRGB(80, 143, 178)),
+  rgb2hsv_approximate(CRGB(122, 80, 178)),
+  rgb2hsv_approximate(CRGB(24, 128, 186))
 };
 char htmlBody_root[] = "<!DOCTYPE html>\n"
 "<html>\n"
@@ -46,23 +49,27 @@ char htmlBody_root[] = "<!DOCTYPE html>\n"
 "   <script>\n"
 "   function changes(){\n"
 "     var val = document.getElementById('action').value;\n"
+"     document.getElementById('brut').setAttribute('hidden', true);\n"
 "     if(val == 'brut'){\n"
 "       document.getElementById('brut').removeAttribute('hidden');\n"
 "     }\n"
-"     else {\n"
-"       document.getElementById('brut').setAttribute('hidden', true);\n"
+"     document.getElementById('circle').setAttribute('hidden', true);\n"
+"     if((val == 'anim3') || (val == 'anim4')){\n"
+"       document.getElementById('circle').removeAttribute('hidden');\n"
 "     }\n"
 "   }\n"
 "   </script>\n"
 " </head>\n"
-" <body>\n"
+" <body onload='changes();'>\n"
 "   <article>\n"
 "     <h1>Modifiez les couleurs de ma veste !</h1>\n"
 "     <form method='post' action=''>\n"
 "     <select name='action' id='action' onchange='changes();'>\n"
 "       <option value='brut'>Modifier les couleurs individuellement</option>\n"
-"       <option value='anim1'>Animation 1</option>\n"
-"       <option value='anim2'>Animation 2</option>\n"
+"       <option value='anim1'>Animation Dark</option>\n"
+"       <option value='anim2'>Animation Rainbow</option>\n"
+"       <option value='anim3'>Animation Circle</option>\n"
+"       <option value='anim4'>Animation Stack</option>\n"
 "     </select></br>\n"
 "     <p id='brut'>\n"
 "       <input type='color' name='l1'><label for='l1'>LED 1</label></br>\n"
@@ -72,7 +79,11 @@ char htmlBody_root[] = "<!DOCTYPE html>\n"
 "       <input type='color' name='l5'><label for='l5'>LED 5</label></br>\n"
 "       <input type='color' name='l6'><label for='l6'>LED 6</label></br>\n"
 "     </p>\n"
-"     <input type='range' name='lum' min='0' max='255' value='200'><label for='lum'>Luminosit&eacute </label></br>\n"
+"     <p id='circle'>\n"
+"       <input type='color' name='color'><label for='color'>Couleur</label></br>\n"
+"     </p>\n"
+"     <p><input type='range' name='lum' min='0' max='255' value='200'><label for='lum'>Luminosit&eacute </label></p>\n"
+"     <p><input type='range' name='speed' min='50' max='1000' value='100'><label for='speed'>Delai </label></p>\n"
 "     <input type='submit' value='Envoyer' />\n"
 "     </form>\n"
 "   </article>\n"
@@ -113,15 +124,24 @@ int isInInterval(int min, int val, int max) {
   return in;
 }
   
-CHSV flicker(const CRGB lastcr, const CRGB basecr, const int maxDist, const int maxDiff){
-  CHSV lastc = rgb2hsv_approximate(lastcr);
-  CHSV basec = rgb2hsv_approximate(basecr);
+CHSV flicker_hsv(const CHSV lastc, const CHSV basec, const int maxDist, const int maxDiff){
   CHSV newc = basec;
-  Serial.print(lastc.hue+String(" "));
+  
   newc.hue = lastc.hue + ((rand() % (2*maxDiff+1)) - maxDiff);
   int isint = isInInterval((unsigned char)(basec.hue-maxDist), newc.hue, (unsigned char)(basec.hue+maxDist));
   newc.hue = (isint==0) ? newc.hue : ((isint<0) ? (unsigned char)(basec.hue-maxDist) : (unsigned char)(basec.hue+maxDist));
-  Serial.println(newc.hue);
+  
+  return newc;
+}
+CHSV flicker_rgb(const CRGB lastcr, const CRGB basecr, const int maxDist, const int maxDiff){
+  CHSV lastc = rgb2hsv_approximate(lastcr);
+  CHSV basec = rgb2hsv_approximate(basecr);
+  CHSV newc = basec;
+  
+  newc.hue = lastc.hue + ((rand() % (2*maxDiff+1)) - maxDiff);
+  int isint = isInInterval((unsigned char)(basec.hue-maxDist), newc.hue, (unsigned char)(basec.hue+maxDist));
+  newc.hue = (isint==0) ? newc.hue : ((isint<0) ? (unsigned char)(basec.hue-maxDist) : (unsigned char)(basec.hue+maxDist));
+  
   return newc;
 }
 
@@ -173,18 +193,34 @@ void handleRoot() {
       {
         if(server.hasArg(String("l")+(i+1))){
           String str = server.arg(String("l")+(i+1));
-          brut[i] = str2CRGB(str);
+          brut[i] = rgb2hsv_approximate(str2CRGB(str));
         }
         else{
-          leds[i] = CRGB::Black;
+          brut[i] = CHSV(0,0,0);
         }
       }
     } else if(action.equals("anim1")){
       anim_mode = ANIM1;
     } else if(action.equals("anim2")){
       anim_mode = ANIM2;
+    } else if(action.equals("anim3")){
+      anim_mode = ANIM3;
+    } else if(action.equals("anim4")){
+      anim_mode = ANIM4;
     } else {
       anim_mode = NONE;
+    }
+
+    if((anim_mode == ANIM3) || (anim_mode == ANIM4)) {
+      if(server.hasArg("color")){
+        CHSV color = rgb2hsv_approximate(str2CRGB(server.arg("color")));
+        for(int i=0; i<NUM_LEDS; i++)
+          brut[i] = color;
+      }
+      else{
+        for(int i=0; i<NUM_LEDS; i++)
+          brut[i] = CHSV(0,0,0);
+      }
     }
     
     if(server.hasArg("lum")){
@@ -195,6 +231,14 @@ void handleRoot() {
       lum = DEFAULT_LUM;
     }
     FastLED.setBrightness(lum);
+
+    if(server.hasArg("speed")){
+      String strSpd = server.arg("speed");
+      spd = atoi(&(strSpd[0]));
+    }
+    else{
+      spd = DEFAULT_SPEED;
+    }
   }
     
   server.send(200, "text/html", htmlBody_root);
@@ -216,6 +260,7 @@ void setup() {
 }
 
 unsigned char offset=0;
+signed char stack=0;
 
 void loop() {
   // put your main code here, to run repeatedly:
@@ -224,27 +269,54 @@ void loop() {
   switch(anim_mode){
     case BRUT:
       for(int i=0; i<NUM_LEDS; i++){
-        leds[i] = flicker(leds[i], brut[i], 40, 10);
+        leds_buffer[i] = flicker_hsv(leds_buffer[i], brut[i], 40, 10);
       }
       break;
     case ANIM1:
       for(int i=0; i<NUM_LEDS; i++){
-        leds[i] = flicker(leds[i], anim1[i], 60, 10);
+        leds_buffer[i] = flicker_hsv(leds_buffer[i], anim1[i], 60, 10);
       }
       break;
     case ANIM2:
       for(int i=0; i<NUM_LEDS; i++){
-        leds[i] = CHSV( ( (int)( (i+offset) %NUM_LEDS) *255) /NUM_LEDS, 200, 150);
-        offset++;//o = (o+1)%NUM_LEDS;
+        leds_buffer[i] = CHSV( ( (int)( (i+offset) %NUM_LEDS) *(int)255) /NUM_LEDS, 200, 150);
+      }
+      break;
+    case ANIM3:
+      if(leds_buffer[offset].hue == 0)
+        leds_buffer[offset] = brut[offset];
+      else
+        leds_buffer[offset] = CHSV(0,0,0);
+      break;
+    case ANIM4:
+      if(stack<=NUM_LEDS){
+        for(int i=0; i<NUM_LEDS; i++){
+          if(i<stack)
+            leds_buffer[i] = brut[i];
+          else
+            leds_buffer[i] = CHSV(0,0,0);
+        }
+      }else{
+        for(int i=0; i<NUM_LEDS; i++){
+          if(i>(stack-NUM_LEDS-1))
+            leds_buffer[i] = brut[i];
+          else
+            leds_buffer[i] = CHSV(0,0,0);
+        }
       }
       break;
     case NONE:
       for(int i=0; i<NUM_LEDS; i++){
-        leds[i] = CRGB((((i+offset)%NUM_LEDS)*255)/NUM_LEDS, 0, 0);
-        offset = (offset+1)%NUM_LEDS;
+        leds_buffer[i] = rgb2hsv_approximate(CRGB((((i+offset)%NUM_LEDS)*255)/NUM_LEDS, 0, 0));
       }
       break;
   }
+  
+  for(int i=0; i<NUM_LEDS; i++){
+    hsv2rgb_rainbow(leds_buffer[i], leds[i]);
+  }
   FastLED.show();
-  delay(100);
+  delay(spd);
+  offset = (offset+1)%NUM_LEDS;
+  stack = (stack+1)%(2*NUM_LEDS + 2);
 }
